@@ -90,23 +90,22 @@ std::string vlCovCvtToStr(const T& t) VL_PURE {
 /// A iterator pointing to individual coverage data.
 
 class VerilatedCovIter {
-    VL_UNCOPYABLE(VerilatedCovIter);
 public:
     VerilatedCovIter(VerilatedCovIterData *);
-    using typename value_type = const struct {
+    typedef const struct {
         uint64_t count;
-        std::vector<const std::string *, const std::string *> values;
-    };
-    using typename difference_type = std::ptrdiff_t;
+        std::vector<std::pair<const std::string *, const std::string *>> values;
+    } value_type;
+    typedef std::ptrdiff_t difference_type;
 
     value_type& operator*() const;
     value_type* operator->() const;
-    VerilatorCovIter& operator++();
-    VerilatorCovIter operator++(int);
+    VerilatedCovIter& operator++();
+    VerilatedCovIter operator++(int);
     bool operator==(const VerilatedCovIter &ano) const;
 private:
     VerilatedCovIterData *m_data;
-}
+};
 
 //=============================================================================
 //  VerilatedCovView
@@ -114,16 +113,17 @@ private:
 /// Used to iterate through coverage data to filter / aggregate them.
 
 class VerilatedCovView {
-    VL_UNCOPYABLE(VerilatedCovView);
 public:
     VerilatedCovView(VerilatedCovImp *imp);
+    VerilatedCovView(VerilatedCovView &&);
     VerilatedCovIter begin();
     VerilatedCovIter end();
 
 private:
+    VL_UNCOPYABLE(VerilatedCovView);
     VerilatedCovImp *m_parent;
     VerilatedLockGuard m_lock;
-}
+};
 
 //=============================================================================
 //  VerilatedCov

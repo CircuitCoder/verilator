@@ -32,6 +32,7 @@
 #include <fstream>
 #include <map>
 #include <utility>
+#include <type_traits>
 
 //=============================================================================
 // VerilatedCovConst
@@ -125,6 +126,8 @@ public:
 
 protected:
     friend class VerilatedCovContext;
+    friend class VerilatedCovIterData;
+    friend class VerilatedCovView;
     ~VerilatedCovImp() override { clearGuts(); }
 
 private:
@@ -285,7 +288,7 @@ public:
     }
 
     VerilatedCovView view() VL_MT_SAFE_EXCLUDES(m_mutex) {
-        return VerilatedCovView(this)
+        return { this };
     }
 
     // We assume there's always call to i/f/p in that order
@@ -486,7 +489,7 @@ void VerilatedCovContext::_insertp(A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7
              C(13), C(14), C(15), C(16), C(17), C(18), C(19), N(20), N(21), N(22), N(23), N(24),
              N(25), N(26), N(27), N(28), N(29));
 }
-// Backward compatibility for Verilator
+// Backward compatibility for 
 void VerilatedCovContext::_insertp(A(0), A(1), K(2), int val2, K(3), int val3, K(4),
                                    const std::string& val4, A(5), A(6), A(7)) VL_MT_SAFE {
     std::string val2str = vlCovCvtToStr(val2);
@@ -533,36 +536,37 @@ class VerilatedCovIterData {
 public:
     friend VerilatedCovIter;
     VerilatedCovImp::ItemList::const_iterator m_it;
-    VerilatedCovIter::value_type m_buffer;
+    mutable std::remove_const<VerilatedCovIter::value_type>::type m_buffer;
     VerilatedCovImp *m_imp;
     bool populated = false;
 
-    VerilatedCovIter(VerilatedCovImp::ItemList::const_iterator it) : m_buffer({0, {}}), m_it(it) {
-        m_buffer.reserve(VerilatedCovConst::MAX_KEYS);
+    VerilatedCovIterData(VerilatedCovImp::ItemList::const_iterator it) : m_it(it) {
+        m_buffer.count = 0;
+        m_buffer.values.reserve(VerilatedCovConst::MAX_KEYS);
     }
 
-    void refresh() {
+    void refresh() const {
         if(populated) return;
-        m_buffer.count = m_it->count();
+        m_buffer.count = (*m_it)->count();
         m_buffer.values.clear();
 
         for (int i = 0; i < VerilatedCovConst::MAX_KEYS; ++i)
-            if(m_it->m_keys[i] != VerilatedCovConst::KEY_UNDEF) {
-                const std::string *key_ptr = m_imp->m_indexValues[m_it->m_keys[i]];
-                const std::string *val_ptr = m_imp->m_indexValues[m_it->m_vals[i]];
+            if((*m_it)->m_keys[i] != VerilatedCovConst::KEY_UNDEF) {
+                const std::string *key_ptr = &m_imp->m_indexValues[(*m_it)->m_keys[i]];
+                const std::string *val_ptr = &m_imp->m_indexValues[(*m_it)->m_vals[i]];
                 m_buffer.values.emplace_back(key_ptr, val_ptr);
             }
     }
-}
+};
 
 VerilatedCovIter::VerilatedCovIter(VerilatedCovIterData *data) : m_data(data) {}
-VerilatedCovIter::value_type& VerilatedCovIter::operator*() {
-    refresh();
+VerilatedCovIter::value_type& VerilatedCovIter::operator*() const {
+    m_data->refresh();
     return m_data->m_buffer;
 }
 
-VerilatedCovIter::value_type* VerilatedCovIter::operator->() {
-    refresh();
+VerilatedCovIter::value_type* VerilatedCovIter::operator->() const {
+    m_data->refresh();
     return &m_data->m_buffer;
 }
 
@@ -579,16 +583,16 @@ VerilatedCovIter VerilatedCovIter::operator++(int) {
 }
 
 bool VerilatedCovIter::operator==(const VerilatedCovIter &ano) const {
-    return ano->m_data->m_it == m_data->m_it;
+    return ano.m_data->m_it == m_data->m_it;
 }
 
-VerilatedCovView::VerilatedCovView(VerilatedCovImp *imp) : m_lock({imp->s_mutex}), m_parent(imp) {}
+VerilatedCovView::VerilatedCovView(VerilatedCovImp *imp) : m_lock(imp->m_mutex), m_parent(imp) {}
 VerilatedCovIter VerilatedCovView::begin() {
-    auto data = new VerilatedCovIterData(imp->m_items.begin());
-    return new VerilatedCovIter(data);
+    auto data = new VerilatedCovIterData(m_parent->m_items.cbegin());
+    return VerilatedCovIter(data);
 }
 
 VerilatedCovIter VerilatedCovView::end() {
-    auto data = new VerilatedCovIterData(imp->m_items.end());
-    return new VerilatedCovIter(data);
+    auto data = new VerilatedCovIterData(m_parent->m_items.cend());
+    return VerilatedCovIter(data);
 }

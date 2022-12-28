@@ -284,6 +284,10 @@ public:
         for (const auto& itemp : m_items) itemp->zero();
     }
 
+    VerilatedCovView view() VL_MT_SAFE_EXCLUDES(m_mutex) {
+        return VerilatedCovView(this)
+    }
+
     // We assume there's always call to i/f/p in that order
     void inserti(VerilatedCovImpItem* itemp) VL_MT_SAFE_EXCLUDES(m_mutex) {
         const VerilatedLockGuard lock{m_mutex};
@@ -434,6 +438,7 @@ void VerilatedCovContext::clearNonMatch(const char* matchp) VL_MT_SAFE {
     impp()->clearNonMatch(matchp);
 }
 void VerilatedCovContext::zero() VL_MT_SAFE { impp()->zero(); }
+VerilatedCovView VerilatedCovContext::view() VL_MT_SAFE { return impp()->view(); }
 void VerilatedCovContext::write(const char* filenamep) VL_MT_SAFE { impp()->write(filenamep); }
 void VerilatedCovContext::_inserti(uint32_t* itemp) VL_MT_SAFE {
     impp()->inserti(new VerilatedCoverItemSpec<uint32_t>{itemp});
@@ -520,4 +525,70 @@ VerilatedCovContext* VerilatedContext::coveragep() VL_MT_SAFE {
         }
     }
     return reinterpret_cast<VerilatedCovContext*>(m_coveragep.get());
+}
+
+//=============================================================================
+// VerilatedCovIter & Data
+class VerilatedCovIterData {
+public:
+    friend VerilatedCovIter;
+    VerilatedCovImp::ItemList::const_iterator m_it;
+    VerilatedCovIter::value_type m_buffer;
+    VerilatedCovImp *m_imp;
+    bool populated = false;
+
+    VerilatedCovIter(VerilatedCovImp::ItemList::const_iterator it) : m_buffer({0, {}}), m_it(it) {
+        m_buffer.reserve(VerilatedCovConst::MAX_KEYS);
+    }
+
+    void refresh() {
+        if(populated) return;
+        m_buffer.count = m_it->count();
+        m_buffer.values.clear();
+
+        for (int i = 0; i < VerilatedCovConst::MAX_KEYS; ++i)
+            if(m_it->m_keys[i] != VerilatedCovConst::KEY_UNDEF) {
+                const std::string *key_ptr = m_imp->m_indexValues[m_it->m_keys[i]];
+                const std::string *val_ptr = m_imp->m_indexValues[m_it->m_vals[i]];
+                m_buffer.values.emplace_back(key_ptr, val_ptr);
+            }
+    }
+}
+
+VerilatedCovIter::VerilatedCovIter(VerilatedCovIterData *data) : m_data(data) {}
+VerilatedCovIter::value_type& VerilatedCovIter::operator*() {
+    refresh();
+    return m_data->m_buffer;
+}
+
+VerilatedCovIter::value_type* VerilatedCovIter::operator->() {
+    refresh();
+    return &m_data->m_buffer;
+}
+
+VerilatedCovIter& VerilatedCovIter::operator++() {
+    m_data->m_it++;
+    m_data->populated = false;
+    return *this;
+}
+VerilatedCovIter VerilatedCovIter::operator++(int) {
+    auto copied_data = new VerilatedCovIterData(*m_data);
+    m_data->m_it++;
+    m_data->populated = false;
+    return VerilatedCovIter(copied_data);
+}
+
+bool VerilatedCovIter::operator==(const VerilatedCovIter &ano) const {
+    return ano->m_data->m_it == m_data->m_it;
+}
+
+VerilatedCovView::VerilatedCovView(VerilatedCovImp *imp) : m_lock({imp->s_mutex}), m_parent(imp) {}
+VerilatedCovIter VerilatedCovView::begin() {
+    auto data = new VerilatedCovIterData(imp->m_items.begin());
+    return new VerilatedCovIter(data);
+}
+
+VerilatedCovIter VerilatedCovView::end() {
+    auto data = new VerilatedCovIterData(imp->m_items.end());
+    return new VerilatedCovIter(data);
 }

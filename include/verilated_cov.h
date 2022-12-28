@@ -32,8 +32,10 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 class VerilatedCovImp;
+class VerilatedCovIterData;
 
 //=============================================================================
 /// Insert an item for coverage analysis.
@@ -84,6 +86,46 @@ std::string vlCovCvtToStr(const T& t) VL_PURE {
 }
 
 //=============================================================================
+//  VerilatedCovIter
+/// A iterator pointing to individual coverage data.
+
+class VerilatedCovIter {
+    VL_UNCOPYABLE(VerilatedCovIter);
+public:
+    VerilatedCovIter(VerilatedCovIterData *);
+    using typename value_type = const struct {
+        uint64_t count;
+        std::vector<const std::string *, const std::string *> values;
+    };
+    using typename difference_type = std::ptrdiff_t;
+
+    value_type& operator*() const;
+    value_type* operator->() const;
+    VerilatorCovIter& operator++();
+    VerilatorCovIter operator++(int);
+    bool operator==(const VerilatedCovIter &ano) const;
+private:
+    VerilatedCovIterData *m_data;
+}
+
+//=============================================================================
+//  VerilatedCovView
+/// A read-only view into all coverage data.
+/// Used to iterate through coverage data to filter / aggregate them.
+
+class VerilatedCovView {
+    VL_UNCOPYABLE(VerilatedCovView);
+public:
+    VerilatedCovView(VerilatedCovImp *imp);
+    VerilatedCovIter begin();
+    VerilatedCovIter end();
+
+private:
+    VerilatedCovImp *m_parent;
+    VerilatedLockGuard m_lock;
+}
+
+//=============================================================================
 //  VerilatedCov
 /// Per-VerilatedContext coverage data class.
 /// All public methods in this class are thread safe.
@@ -108,6 +150,8 @@ public:
     void clearNonMatch(const char* matchp) VL_MT_SAFE;
     /// Zero coverage points
     void zero() VL_MT_SAFE;
+    /// Get a exclusive read-only view into the coverage data
+    VerilatedCovView view() VL_MT_SAFE;
 
     // METHODS - public but Internal use only
 
